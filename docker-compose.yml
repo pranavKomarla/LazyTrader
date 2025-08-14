@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stockapp-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-stockapp}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  
+  web:
+    container_name: stockapp-frontend
+    build:
+      context: ./frontend/packages/NextAuth
+      dockerfile: Dockerfile.frontend
+      target: dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/packages/NextAuth/.env.development
+      - ./.env
+    depends_on:
+      db:
+          condition: service_healthy
+    volumes:
+      - ./frontend/packages/NextAuth:/app         # hot reload in dev
+      - /app/node_modules        # keep container’s node_modules isolated
+      - /app/.next
+
+#   backend:
+#     build:
+#       context: ./backend
+#       dockerfile: Dockerfile.backend
+#     container_name: stockapp-backend
+#     environment:
+#       DATABASE_URL: ${DATABASE_URL}
+#       REDIS_URL: ${REDIS_URL}
+#       OPENAI_API_KEY: ${OPENAI_API_KEY}
+#       POLYGON_API_KEY: ${POLYGON_API_KEY}
+#       FINNHUB_API_KEY: ${FINNHUB_API_KEY}
+#       # Choose your framework here: fastapi or flask
+#       BACKEND_FRAMEWORK: ${BACKEND_FRAMEWORK:-fastapi}
+#     ports:
+#       - "8000:8000"
+#     depends_on:
+#       - db
+#       - redis
+#     # Default command is FastAPI; override via .env or here for Flask
+#     command: >
+#       sh -c "
+#       if [ \"$BACKEND_FRAMEWORK\" = \"flask\" ]; then
+#         gunicorn -w 2 -b 0.0.0.0:8000 app.server:app;
+#       else
+#         uvicorn app.main:app --host 0.0.0.0 --port 8000;
+#       fi
+#       "
+
+  
+
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: stockapp-redis
+  #   ports:
+  #     - "6379:6379"
+
+volumes:
+  pgdata:

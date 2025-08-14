@@ -1,0 +1,33 @@
+.megamenu {
+  transform: translateY(50px) !important;
+}
+
+.simplebar-scrollbar:before {
+  background: var(--color-border) !important;
+}
+
+.translate {
+  transform: translate(-88%, 40px) !important;
+  transition: 0.5s;
+}
+.translate-lng {
+  transform: translate(-81%, 40px) !important;
+  transition: 0.5s;
+}
+
+.h-n80 {
+  height: calc(100vh - 80px);
+}
+
+
+
+.two-cols{
+  -webkit-columns: 4;
+  -moz-columns: 4;
+  columns: 4;
+}
+
+[data-simplebar], .simplebar-offset, .simplebar-content,.simplebar-wrapper,.simplebar-mask,.simplebar-content-wrapper{
+  outline:none !important;
+  border:none !important
+}

@@ -1,0 +1,19 @@
+# common
+pydantic
+requests
+redis
+psycopg2-binary
+SQLAlchemy
+
+# LLM stack
+langchain
+transformers
+torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+# FastAPI option
+fastapi
+uvicorn[standard]
+
+# Flask option
+flask
+gunicorn

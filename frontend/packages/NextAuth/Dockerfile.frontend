@@ -1,0 +1,61 @@
+# --- Base image with common deps ---
+    FROM node:20-alpine AS base
+    WORKDIR /app
+    ENV CI=true
+    
+    # Install openssl for Prisma on alpine
+    RUN apk add --no-cache openssl
+    
+    # --- Dev image (hot reload) ---
+    FROM base AS dev
+    # Avoid copying node_modules from host
+    # COPY package*.json ./
+
+    COPY package.json /app/package.json
+    COPY package-lock.json /app/package-lock.json
+
+    # Debug: prove what the container sees before npm ci
+    RUN echo "=== package.json TS ===" \
+    && node -e 'console.log(require("./package.json").devDependencies?.typescript || require("./package.json").dependencies?.typescript)' \
+    && echo "=== package-lock TS ===" \
+    && node -e 'const l=require("./package-lock.json");console.log((l.packages?.[""]?.devDependencies?.typescript)||(l.dependencies?.typescript?.version))'
+
+
+    RUN npm ci
+    # Copy everything except what's in .dockerignore
+    COPY . .
+    # Ensure Prisma client is generated in the container
+    RUN npx prisma generate || true
+    # Expose Next dev port
+    EXPOSE 3000
+    CMD ["npm", "run", "dev"]
+
+
+    
+    # # --- Builder for production ---
+    # FROM base AS builder
+    # COPY package*.json ./
+    # RUN npm ci
+    # COPY . .
+    # RUN npx prisma generate
+    # RUN npm run build
+    
+    # # --- Runner for production ---
+    # FROM node:20-alpine AS runner
+    # WORKDIR /app
+    # ENV NODE_ENV=production
+    # # Same openssl need for Prisma
+    # RUN apk add --no-cache openssl
+    # # Copy only what we need to run
+    # COPY --from=builder /app/package*.json ./
+    # RUN npm ci --omit=dev
+    # COPY --from=builder /app/.next ./.next
+    # COPY --from=builder /app/public ./public
+    # COPY --from=builder /app/prisma ./prisma
+    # COPY --from=builder /app/next.config.mjs ./next.config.mjs
+    # COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+    # COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+    # # If you run with next start
+    # EXPOSE 3000
+    # CMD ["npm", "run", "start"]
+    

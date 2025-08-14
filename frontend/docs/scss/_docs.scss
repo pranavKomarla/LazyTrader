@@ -1,0 +1,206 @@
+.docs {
+
+  .bg-wrapper{
+    margin-top: 70px;
+    background-color: $light;
+    min-height: 100vh;
+
+    @media screen and (max-width:767px){
+      margin-top: 0px;
+    }
+  }
+  &#main-wrapper {
+    display: flex;
+    align-items: stretch;
+    font-size: 16px;
+  }
+
+
+  .left-sidebar {
+    width: 270px;
+    flex-shrink: 0;
+    position: fixed;
+    left: 0;
+    height: 100vh;
+    transition: all 0.2s linear;
+    z-index: 9999;
+    background-color: $white;
+    border-right: 1px solid $gray-400;
+
+    #sidebarnav {
+      padding: 20px;
+
+      .collapse.in {
+        display: block;
+      }
+
+      .nav-small-cap {
+
+        display: block;
+        padding: 10px 0px;
+        font-size: 14px;
+        font-weight: $font-weight-semibold;
+        text-transform: capitalize;
+        color: $dark;
+        border-top: 1px dashed $gray-400;
+        padding-top: 25px;
+        &:first-child{
+          border-top: 0;
+          padding-top: 0px;
+        }
+      }
+
+      .sidebar-item {
+        margin-bottom: 5px;
+
+        .first-level{
+          .sub-link{
+            opacity: 0.9;
+            &.active{
+              background-color: transparent !important;
+              color: $primary !important;
+            }
+          }
+            
+        }
+
+        .has-arrow {
+          &::after {
+            position: absolute;
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-width: 2px 0 0 2px;
+            border-style: solid;
+            border-color: $gray-700;
+            margin-left: 10px;
+            -webkit-transform: rotate(225deg) translate(0, -50%);
+            -ms-transform: rotate(225deg) translate(0, -50%);
+            -o-transform: rotate(225deg) translate(0, -50%);
+            transform: rotate(225deg) translate(0, -50%);
+            -webkit-transform-origin: top;
+            -ms-transform-origin: top;
+            -o-transform-origin: top;
+            transform-origin: top;
+            top: 20px;
+            right:12px;
+            -webkit-transition: all 0.3s ease-out;
+            -o-transition: all 0.3s ease-out;
+            transition: all 0.3s ease-out;
+          }
+
+          &.active {
+            &::after {
+              -webkit-transform: rotate(45deg) translate(0, -50%);
+              -ms-transform: rotate(45deg) translate(0, -50%);
+              -o-transform: rotate(45deg) translate(0, -50%);
+              transform: rotate(45deg) translate(0, -50%);
+              border-color: $primary;
+              top: 23px;
+            }
+          }
+        }
+
+        .nav-link {
+          padding: 10px 18px;
+          color: $muted;
+          font-size: 15px;
+          border-radius: 30px;
+
+
+          &.active {
+            background-color: $primary-bg-subtle !important;
+            color: $primary !important;
+          }
+
+          &:hover {
+            background-color: $primary-bg-subtle;
+            color: $primary;
+
+            &.has-arrow {
+              &::after {
+                border-color: $primary;
+              }
+
+              &.active {
+                &::after {
+                  border-color: $primary;
+                }
+              }
+            }
+          }
+        }
+
+        .sub-link {
+          &:hover {
+            background-color: transparent;
+            color: $primary;
+          }
+
+          &.active {
+            background-color: transparent;
+            color: $primary;
+            box-shadow: none;
+          }
+        }
+      }
+    }
+  }
+
+  .page-wrapper {
+    margin-left: 270px;
+    padding: 30px 0;
+    width: 100%;
+
+    .container-fluid {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 15px;
+    }
+  }
+
+  .card {
+    border: 1px solid $border-color;
+    border-radius: 20px;
+    margin-bottom: 20px;
+  }
+
+  a {
+    text-decoration: none;
+  }
+
+  pre {
+    display: grid;
+    margin: 15px 0 0;
+
+    code.hljs {
+      border-radius: $border-radius-md;
+    }
+  }
+}
+
+@include media-breakpoint-down(lg) {
+  .docs {
+    .left-sidebar {
+      left: 0px;
+    }
+
+    .page-wrapper {
+      margin-left: 0;
+      padding-top: 0;
+    }
+    .navbar-header{
+      padding: 15px 20px;
+    }
+  }
+
+}
+
+@include media-breakpoint-down(sm) {
+  .docs {
+    .page-wrapper .container-fluid {
+      padding-top: 30px;
+    }
+  }
+  
+}
