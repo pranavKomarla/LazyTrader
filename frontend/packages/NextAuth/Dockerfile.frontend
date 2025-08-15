@@ -12,20 +12,30 @@
     # COPY package*.json ./
 
     COPY package.json /app/package.json
-    COPY package-lock.json /app/package-lock.json
+    # COPY package-lock.json /app/package-lock.json
 
-    # Debug: prove what the container sees before npm ci
-    RUN echo "=== package.json TS ===" \
-    && node -e 'console.log(require("./package.json").devDependencies?.typescript || require("./package.json").dependencies?.typescript)' \
-    && echo "=== package-lock TS ===" \
-    && node -e 'const l=require("./package-lock.json");console.log((l.packages?.[""]?.devDependencies?.typescript)||(l.dependencies?.typescript?.version))'
+    # Install dependencies (this will generate a fresh package-lock.json)
+    RUN npm install
+
+    # # Debug: prove what the container sees before npm ci
+    # RUN echo "=== package.json TS ===" \
+    # && node -e 'console.log(require("./package.json").devDependencies?.typescript || require("./package.json").dependencies?.typescript)' \
+    # && echo "=== package-lock TS ===" \
+    # && node -e 'const l=require("./package-lock.json");console.log((l.packages?.[""]?.devDependencies?.typescript)||(l.dependencies?.typescript?.version))'
 
 
-    RUN npm ci
+    # RUN npm ci
+
+    # Ensure Prisma client is generated in the container
+    COPY prisma ./prisma
+    RUN npx prisma generate
+    
     # Copy everything except what's in .dockerignore
     COPY . .
-    # Ensure Prisma client is generated in the container
-    RUN npx prisma generate || true
+    
+    # Verify Prisma client was generated
+    RUN ls -la node_modules/.prisma/client/ || echo "Prisma client not found"
+    
     # Expose Next dev port
     EXPOSE 3000
     CMD ["npm", "run", "dev"]

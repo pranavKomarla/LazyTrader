@@ -1,12 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  output   = "../src/generated/prisma"
+  output   = "../src/generated/prisma/client"
 }
 
 datasource db {
@@ -15,17 +9,17 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
+  id            String      @id @default(cuid())
   name          String?
-  email         String?  @unique
+  email         String?     @unique
   emailVerified DateTime?
   image         String?
-  // for Credentials:
-  username      String?  @unique
+  username      String?     @unique
   passwordHash  String?
-
   accounts      Account[]
+  portfolios    Portfolio[]
   sessions      Session[]
+  settings      Settings?
 }
 
 model Account {
@@ -41,8 +35,8 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@unique([provider, providerAccountId])
 }
 
@@ -58,5 +52,22 @@ model VerificationToken {
   identifier String
   token      String   @unique
   expires    DateTime
+
   @@unique([identifier, token])
+}
+
+model Settings {
+  userId   String  @id
+  theme    String  @default("system")
+  timezone String?
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Portfolio {
+  id     String @id @default(cuid())
+  userId String
+  name   String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

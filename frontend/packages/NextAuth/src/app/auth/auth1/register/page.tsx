@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 };
 
 import Link from "next/link";
+import SocialButtons from "../../authforms/SocialButtons";
 const Login = () => {
   return (
     <>
@@ -26,14 +27,15 @@ const Login = () => {
                   <p className="text-darklink text-sm font-medium">
                     Your Admin Dashboard
                   </p>
+                  <SocialButtons title="or sign in with" />
                   <AuthRegister />
                   <div className="flex gap-2 text-base text-ld font-medium mt-6 items-center justify-center">
-                    <p>New to MaterialM?</p>
+                    <p>Already have an account?</p>
                     <Link
-                      href={"/auth/auth1/register"}
+                      href={"/auth/auth1/login"}
                       className="text-primary text-sm font-medium"
                     >
-                      Create an account
+                      Sign In
                     </Link>
                   </div>
                 </div>

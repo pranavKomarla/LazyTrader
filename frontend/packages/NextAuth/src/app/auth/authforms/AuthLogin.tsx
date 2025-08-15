@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import { Icon } from "@iconify/react";
 const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
   const { data: session } = useSession();
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
@@ -16,8 +16,9 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
     e.preventDefault();
     const result = await signIn("credentials", {
       redirect: false,
-      username,
+      email,
       password,
+      action: "login",
     });
     if (result?.error) {
       // Handle successful sign-in
@@ -35,7 +36,7 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
       {error ? (
         <div className="mt-4">
           <Alert
-            color={"lighterror"}
+            color="failure"
             icon={() => (
               <Icon
                 icon="solar:info-circle-outline"
@@ -44,7 +45,7 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
               />
             )}
           >
-            Sign-in error: Username or Password is Wrong
+            Sign-in error: Email or Password is Wrong
           </Alert>
         </div>
       ) : (
@@ -54,20 +55,20 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
       <form onSubmit={handleSubmit} className="mt-6">
         <div className="mb-4">
           <div className="mb-2 block">
-            <Label htmlFor="Username" value="Username" />
+            <Label htmlFor="Email">Email</Label>
           </div>
           <TextInput
-            id="Username"
+            id="Email"
             type="text"
             sizing="md"
-            value={username}
+            value={email}
             className={`form-control ${ error !== "" ? 'error-border' : '' }`}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
           />
         </div>
         <div className="mb-4">
           <div className="mb-2 block">
-            <Label htmlFor="password" value="Password" />
+            <Label htmlFor="password">Password</Label>
           </div>
           <TextInput
             id="password"
@@ -78,7 +79,7 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
             onChange={(e) => setPassword(e.target.value)}
           />
         </div>
-        <div className="flex justify-between my-5">
+        {/* <div className="flex justify-between my-5">
           <div className="flex items-center gap-2">
             <Checkbox id="accept" className="checkbox" />
             <Label
@@ -91,8 +92,8 @@ const AuthLogin = ({ title, subtitle, subtext }: loginType) => {
           <Link href={"/"} className="text-primary text-sm font-medium">
             Forgot Password ?
           </Link>
-        </div>
-        <Button color={"primary"} type="submit" className=" w-full">
+        </div> */}
+        <Button color="primary" type="submit" className="w-full flex justify-center items-center">
           Sign in
         </Button>
       </form>

@@ -27,9 +27,12 @@ services:
       target: dev
     ports:
       - "3000:3000"
+      - "5555:5555" # Prisma Studio Port
     env_file:
-      - ./frontend/packages/NextAuth/.env.development
+      - ./frontend/packages/NextAuth/.env
       - ./.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-stockapp}
     depends_on:
       db:
           condition: service_healthy
