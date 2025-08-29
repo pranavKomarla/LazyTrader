@@ -43,7 +43,17 @@ const handler = NextAuth({
             where: { email: email }
           });
           
-          if (existingUser) return null; // User already exists
+          if (existingUser) {
+            // User exists - allow setting password for OAuth users
+            if (!existingUser.passwordHash) {
+              const passwordHash = await bcrypt.hash(password, 12);
+              await prisma.user.update({
+                where: { id: existingUser.id },
+                data: { passwordHash: passwordHash }
+              });
+            }
+            return existingUser;
+          }
           
           // Hash password and create new user
           const passwordHash = await bcrypt.hash(password, 12);
