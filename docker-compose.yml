@@ -41,33 +41,29 @@ services:
       - /app/node_modules        # keep container’s node_modules isolated
       - /app/.next
 
-#   backend:
-#     build:
-#       context: ./backend
-#       dockerfile: Dockerfile.backend
-#     container_name: stockapp-backend
-#     environment:
-#       DATABASE_URL: ${DATABASE_URL}
-#       REDIS_URL: ${REDIS_URL}
-#       OPENAI_API_KEY: ${OPENAI_API_KEY}
-#       POLYGON_API_KEY: ${POLYGON_API_KEY}
-#       FINNHUB_API_KEY: ${FINNHUB_API_KEY}
-#       # Choose your framework here: fastapi or flask
-#       BACKEND_FRAMEWORK: ${BACKEND_FRAMEWORK:-fastapi}
-#     ports:
-#       - "8000:8000"
-#     depends_on:
-#       - db
-#       - redis
-#     # Default command is FastAPI; override via .env or here for Flask
-#     command: >
-#       sh -c "
-#       if [ \"$BACKEND_FRAMEWORK\" = \"flask\" ]; then
-#         gunicorn -w 2 -b 0.0.0.0:8000 app.server:app;
-#       else
-#         uvicorn app.main:app --host 0.0.0.0 --port 8000;
-#       fi
-#       "
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend
+    container_name: stockapp-backend
+    env_file:
+      - ./.env
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-stockapp}
+      REDIS_URL: ${REDIS_URL}
+      # Choose your framework here: fastapi or flask
+      BACKEND_FRAMEWORK: ${BACKEND_FRAMEWORK:-fastapi}
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      # - redis
+    volumes:
+      - ./backend/app:/app/app  # hot reload mount (dev)
+    # Command that overrides the default command in Dockerfile.backend. Just use for dev. 
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   
 

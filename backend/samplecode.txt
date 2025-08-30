@@ -1,0 +1,407 @@
+# === File: app/main.py ===
+from fastapi import FastAPI
+from app.routers import news, summarize
+
+app = FastAPI(title="Market News API", version="0.1.0")
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
+app.include_router(news.router, prefix="/news", tags=["news"])
+app.include_router(summarize.router, prefix="/news", tags=["summaries"])
+
+
+# === File: app/models.py ===
+from pydantic import BaseModel, HttpUrl, Field
+from datetime import datetime
+from typing import List, Optional, Dict
+
+class Article(BaseModel):
+    id: str
+    url: HttpUrl
+    title: str
+    source: str
+    published_at: datetime
+    ingested_at: datetime
+    snippet: Optional[str] = None
+    tickers: List[str] = []
+    sentiment: int = 0  # -1, 0, 1
+    topics: List[str] = []  # ["general","ai","ipos","smallcaps","macro"]
+    cluster_id: Optional[str] = None
+    coverage_score: float = 0.0
+
+class ArticleCard(Article):
+    pass
+
+class ArticleSummary(BaseModel):
+    article_id: str
+    tldr: str
+    entities: Dict[str, List[str]] = Field(default_factory=lambda: {"indices":[], "sectors":[], "companies":[]})
+    model: str = "stub-llm-0.1"
+    created_at: datetime
+
+class PageRecap(BaseModel):
+    recap_text: str
+    themes: List[Dict[str, str]]
+    sources: List[Dict[str, int]] = []
+    model: str = "stub-llm-0.1"
+    created_at: datetime
+
+
+# === File: app/routers/news.py ===
+from fastapi import APIRouter, Query, HTTPException
+from typing import Optional
+from datetime import datetime, timedelta
+from app.services import cache, db, rank
+
+router = APIRouter()
+
+VALID_TABS = {"general","ai","ipos","smallcaps","macro"}
+VALID_SINCE = {"today","24h","7d"}
+VALID_SENT = {"any","bull","bear","neutral"}
+
+@router.get("")
+async def list_news(
+    tab: str = Query("general"),
+    since: str = Query("24h"),
+    sentiment: str = Query("any"),
+    sources: str = Query("all"),
+    limit: int = Query(50, ge=1, le=200),
+    watchlist: Optional[str] = None,
+    cursor: Optional[str] = None,
+):
+    if tab not in VALID_TABS:
+        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid tab"})
+    if since not in VALID_SINCE:
+        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid since"})
+    if sentiment not in VALID_SENT:
+        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid sentiment"})
+
+    now = datetime.utcnow()
+    cutoff = {
+        "today": datetime(now.year, now.month, now.day),
+        "24h": now - timedelta(hours=24),
+        "7d": now - timedelta(days=7),
+    }[since]
+
+    wl = [t.strip().upper() for t in watchlist.split(",")] if watchlist else []
+
+    cache_key = f"news:{tab}:{since}:{sentiment}:{sources}:{','.join(wl) or 'none'}:{limit}:{cursor or '0'}"
+    cached = await cache.get(cache_key)
+    if cached:
+        return cached
+
+    # Query DB and rank
+    articles = await db.query_articles(tab=tab, cutoff=cutoff, sentiment=sentiment, sources=sources, limit=limit, watchlist=wl, cursor=cursor)
+    ranked = rank.rank_articles(articles)
+
+    result = {
+        "tab": tab,
+        "window": since,
+        "generated_at": now.isoformat() + "Z",
+        "next_cursor": None,  # stubbed
+        "articles": [a.dict() for a in ranked[:limit]],
+    }
+    await cache.set(cache_key, result, ttl=900)
+    return result
+
+
+# === File: app/routers/summarize.py ===
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from datetime import datetime
+from typing import List
+from app.services import cache, db, summarize_llm
+
+router = APIRouter()
+
+class SummarizeArticleBody(BaseModel):
+    id: str
+
+@router.post("/summarize-article")
+async def summarize_article_endpoint(body: SummarizeArticleBody):
+    key = f"article_summary:{body.id}"
+    cached = await cache.get(key)
+    if cached:
+        return cached
+
+    article = await db.get_article(body.id)
+    if not article:
+        raise HTTPException(status_code=404, detail={"code":"NOT_FOUND","message":"article not found"})
+
+    summary = await summarize_llm.summarize_article(article)
+    await db.save_article_summary(summary)
+    payload = summary.dict()
+    await cache.set(key, payload, ttl=259200)  # 3 days
+    return payload
+
+class SummarizePageBody(BaseModel):
+    article_ids: List[str]
+
+@router.post("/summarize-page")
+async def summarize_page_endpoint(body: SummarizePageBody):
+    if not body.article_ids:
+        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"article_ids required"})
+
+    # Deterministic key (shortened)
+    joined = ",".join(sorted(body.article_ids))
+    key = "page_recap:" + str(abs(hash(joined)))
+
+    cached = await cache.get(key)
+    if cached:
+        return cached
+
+    articles = [a for a in (await db.get_articles(body.article_ids)) if a]
+    recap = await summarize_llm.summarize_page(articles)
+    payload = recap.dict()
+    await cache.set(key, payload, ttl=43200)  # 12h
+    return payload
+
+
+# === File: app/services/cache.py ===
+import time
+from typing import Any, Optional
+
+# Simple in-memory TTL cache for MVP; swap with aioredis later
+_store = {}
+
+async def get(key: str) -> Optional[Any]:
+    item = _store.get(key)
+    if not item:
+        return None
+    value, exp = item
+    if exp and time.time() > exp:
+        del _store[key]
+        return None
+    return value
+
+async def set(key: str, value: Any, ttl: int = 0) -> None:
+    exp = time.time() + ttl if ttl else 0
+    _store[key] = (value, exp)
+
+
+# === File: app/services/db.py ===
+from typing import List, Optional
+from datetime import datetime
+from app.models import Article, ArticleSummary
+
+# In-memory mock DB; replace with Mongo/Motor later
+_articles: dict[str, Article] = {}
+_summaries: dict[str, ArticleSummary] = {}
+
+async def seed(articles: List[Article]):
+    for a in articles:
+        _articles[a.id] = a
+
+async def get_article(article_id: str) -> Optional[Article]:
+    return _articles.get(article_id)
+
+async def get_articles(ids: List[str]) -> List[Optional[Article]]:
+    return [await get_article(i) for i in ids]
+
+async def save_article_summary(summary: ArticleSummary):
+    _summaries[summary.article_id] = summary
+
+async def query_articles(tab: str, cutoff: datetime, sentiment: str, sources: str, limit: int, watchlist: List[str], cursor: Optional[str]):
+    # Very naive filter; replace with indexed queries in real DB
+    res = []
+    for a in _articles.values():
+        if tab not in a.topics:
+            continue
+        if a.published_at < cutoff:
+            continue
+        if sentiment != "any":
+            if sentiment == "bull" and a.sentiment <= 0: continue
+            if sentiment == "bear" and a.sentiment >= 0: continue
+            if sentiment == "neutral" and a.sentiment != 0: continue
+        if sources != "all":
+            allowed = {s.strip().lower() for s in sources.split(",")}
+            if a.source.lower() not in allowed:
+                continue
+        if watchlist:
+            if not any(t in (a.tickers or []) for t in watchlist):
+                continue
+        res.append(a)
+    # No real cursor yet
+    res.sort(key=lambda x: (x.published_at, x.coverage_score), reverse=True)
+    return res[:limit]
+
+
+# === File: app/services/rank.py ===
+from typing import List
+from collections import defaultdict
+from app.models import Article
+
+DOMAIN_CAP_PER_HOUR = 3
+
+def rank_articles(articles: List[Article]) -> List[Article]:
+    # Already roughly sorted by (published_at desc, coverage)
+    # Apply a simple source diversity cap per "hour bucket"
+    bucket_counts = defaultdict(int)
+    ranked = []
+    for a in articles:
+        bucket = (a.source.lower(), a.published_at.strftime("%Y%m%d%H"))
+        if bucket_counts[bucket] >= DOMAIN_CAP_PER_HOUR:
+            continue
+        bucket_counts[bucket] += 1
+        ranked.append(a)
+    return ranked
+
+
+# === File: app/services/summarize_llm.py ===
+from datetime import datetime
+from typing import List
+from app.models import Article, ArticleSummary, PageRecap
+
+# Stub LLM: deterministic summary; swap with LangChain + real model in prod
+
+async def summarize_article(article: Article) -> ArticleSummary:
+    bullets = [
+        f"Headline: {article.title}",
+        f"Source: {article.source}",
+        f"Published: {article.published_at.isoformat()}Z",
+        f"Topics: {', '.join(article.topics) or 'n/a'}",
+        f"Tickers: {', '.join(article.tickers) or 'n/a'}",
+    ]
+    tldr = "\n- " + "\n- ".join(bullets)
+    ent = {
+        "indices": [t for t in article.tickers if t in {"SPY","QQQ","IWM","DIA"}],
+        "sectors": [],
+        "companies": [t for t in article.tickers if t not in {"SPY","QQQ","IWM","DIA"}],
+    }
+    return ArticleSummary(
+        article_id=article.id,
+        tldr=tldr,
+        entities=ent,
+        created_at=datetime.utcnow(),
+    )
+
+async def summarize_page(articles: List[Article]) -> PageRecap:
+    if not articles:
+        return PageRecap(
+            recap_text="No articles provided.",
+            themes=[],
+            created_at=datetime.utcnow(),
+        )
+    by_source = {}
+    for a in articles:
+        by_source[a.source] = by_source.get(a.source, 0) + 1
+    text = (
+        f"Daily recap across {len(articles)} articles. "
+        f"Common topics: " + ", ".join(sorted({t for a in articles for t in (a.topics or [])}))
+    )
+    themes = []
+    if any("macro" in (a.topics or []) for a in articles):
+        themes.append({"label":"Macro", "brief":"Macro drivers featured prominently today."})
+    if any("ai" in (a.topics or []) for a in articles):
+        themes.append({"label":"AI", "brief":"AI & Semis were active in headlines."})
+    return PageRecap(
+        recap_text=text,
+        themes=themes,
+        sources=[{"name": k, "count": v} for k,v in sorted(by_source.items(), key=lambda kv: -kv[1])],
+        created_at=datetime.utcnow(),
+    )
+
+
+# === File: app/services/ingest.py ===
+from datetime import datetime, timedelta
+from app.models import Article
+from app.services import db
+
+# Seed with a few mock articles (replace with real fetchers)
+async def seed_mock_articles():
+    now = datetime.utcnow()
+    demo = [
+        Article(
+            id="a_1001",
+            url="https://example.com/reuters1",
+            title="Stocks slip as yields tick higher ahead of CPI",
+            source="Reuters",
+            published_at=now - timedelta(hours=2),
+            ingested_at=now,
+            snippet="Wall Street edged lower as Treasury yields rose...",
+            tickers=["SPY","QQQ","IWM"],
+            sentiment=0,
+            topics=["general","macro","rates"],
+            coverage_score=0.72,
+        ),
+        Article(
+            id="a_1002",
+            url="https://example.com/ft1",
+            title="Chip rally cools; investors look to next AI catalysts",
+            source="FT",
+            published_at=now - timedelta(hours=3),
+            ingested_at=now,
+            snippet="Semiconductor shares eased after a strong run...",
+            tickers=["NVDA","AMD"],
+            sentiment=0,
+            topics=["ai","general"],
+            coverage_score=0.55,
+        ),
+        Article(
+            id="a_1003",
+            url="https://example.com/wsj1",
+            title="IPO window reopens as market stabilizes",
+            source="WSJ",
+            published_at=now - timedelta(hours=6),
+            ingested_at=now,
+            snippet="Bankers are lining up deals for the fall...",
+            tickers=[],
+            sentiment=1,
+            topics=["ipos","general"],
+            coverage_score=0.48,
+        ),
+    ]
+    await db.seed(demo)
+
+
+# === File: run_dev.py ===
+import uvicorn
+import asyncio
+from app.services.ingest import seed_mock_articles
+
+if __name__ == "__main__":
+    # Seed mock data before starting server
+    asyncio.run(seed_mock_articles())
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+# === File: requirements.txt ===
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.0
+
+# (Later, when you swap stubs for real services)
+# motor==3.6.0           # Mongo async driver
+# redis==5.0.8           # Redis client (async via redis.asyncio)
+# spacy==3.7.5
+# torch>=2.2
+# transformers>=4.43
+# tenacity==9.0.0
+# langchain==0.2.14
+# langchain-openai==0.1.23
+
+# === File: README.md ===
+# Market News API — FastAPI MVP (Code Scaffold)
+
+This is a minimal, runnable scaffold of the backend API discussed:
+- `GET /news` — list articles (mock, in-memory)
+- `POST /news/summarize-article` — per-article TL;DR (stub LLM)
+- `POST /news/summarize-page` — recap of current feed (stub LLM)
+
+## Quickstart
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python run_dev.py
+```
+Open: http://localhost:8000/docs
+
+You’ll see seeded demo articles; swap the in-memory services under `app/services/` with Mongo/Redis/LLM when ready.
+
+## Where to plug real services later
+- **Mongo**: replace `app/services/db.py` with Motor (MongoDB). Create indexes on `(topics, published_at)`, `(cluster_id)`, and text index on `title,snippet`.
+- **Redis**: replace `app/services/cache.py` with `redis.asyncio.Redis` and set TTLs as per design.
+- **LLM**: replace `app/services/summarize_llm.py` with LangChain calls. Keep prompts short and enforce length.
+- **Ingestion**: create periodic worker (Celery/RQ) to fetch, normalize, dedupe, tag, cluster, upsert, and warm Redis keys.
