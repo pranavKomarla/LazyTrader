@@ -1,7 +1,7 @@
 # LLM summarization service
 from typing import List
 from app.domain.news.models import Article, ArticleSummary, PageRecap
-from datetime import datetime
+from datetime import datetime, timezone
 
 async def summarize_article(article: Article) -> ArticleSummary:
     """
@@ -13,7 +13,7 @@ async def summarize_article(article: Article) -> ArticleSummary:
         article_id=article.id,
         tldr=f"Summary of: {article.title}",
         model="stub-llm-0.1",
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
 
 async def summarize_page(articles: List[Article]) -> PageRecap:
@@ -26,5 +26,5 @@ async def summarize_page(articles: List[Article]) -> PageRecap:
         recap_text=f"Recap of {len(articles)} articles",
         themes=[{"topic": "general", "description": "Market news"}],
         model="stub-llm-0.1",
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )

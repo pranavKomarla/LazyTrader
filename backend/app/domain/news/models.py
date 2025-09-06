@@ -3,7 +3,21 @@ from datetime import datetime
 from typing import List, Optional, Dict
 
 
-class Article(BaseModel):
+class FinnhubArticle(BaseModel):
+    id: str
+    url: HttpUrl
+    title: str
+    source: str
+    published_at: datetime
+    ingested_at: datetime
+    snippet: Optional[str] = None
+    tickers: List[str] = []
+    sentiment: int = 0 # -1, 0, 1
+    topics: List[str] = [] # ["general","ai","ipos","smallcaps","macro"]
+    cluster_id: Optional[str] = None
+    coverage_score: float = 0.0
+
+class NewsAPIArticle(BaseModel):
     id: str
     url: HttpUrl
     title: str
@@ -18,8 +32,8 @@ class Article(BaseModel):
     coverage_score: float = 0.0
 
 
-class ArticleCard(Article):
-    pass
+# class ArticleCard(Article):
+#     pass
 
 
 class ArticleSummary(BaseModel):

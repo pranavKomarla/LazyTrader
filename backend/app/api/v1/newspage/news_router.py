@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.services import cache, db, rank
 
 
@@ -31,7 +31,7 @@ async def list_news(
         raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid sentiment"})
 
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cutoff = {
     "today": datetime(now.year, now.month, now.day),
     "24h": now - timedelta(hours=24),
