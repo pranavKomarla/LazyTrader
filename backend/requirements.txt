@@ -1,4 +1,10 @@
 fastapi
-uvicorn[standard]
-pydantic[email]
+uvicorn
+pydantic
 python-multipart
+motor
+pymongo
+python-dotenv
+polygon-api-client
+finnhub-python
+newsapi-python

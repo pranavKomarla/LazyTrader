@@ -51,6 +51,7 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-stockapp}
+      MONGODB_URL: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-password}@mongo:27017/${MONGO_DB:-stockapp}?authSource=admin
       REDIS_URL: ${REDIS_URL}
       # Choose your framework here: fastapi or flask
       BACKEND_FRAMEWORK: ${BACKEND_FRAMEWORK:-fastapi}
@@ -58,12 +59,31 @@ services:
       - "8000:8000"
     depends_on:
       - db
+      - mongo
       # - redis
     volumes:
       - ./backend/app:/app/app  # hot reload mount (dev)
     # Command that overrides the default command in Dockerfile.backend. Just use for dev. 
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  mongo:
+    image: mongo:7.0
+    container_name: stockapp-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-stockapp}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      # - ./mongo-init:/docker-entrypoint-initdb.d  # Optional: for initialization scripts
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   
 
@@ -75,3 +95,4 @@ services:
 
 volumes:
   pgdata:
+  mongo_data:
