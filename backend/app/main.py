@@ -1,26 +1,28 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from app.adapters.db.mongo import connect_to_mongo, close_mongo_connection
-from app.api.v1.newspage import news_router, summarize_router
+#from app.adapters.db.mongo import connect_to_mongo, close_mongo_connection
+#from app.api.v1.newspage import news_router, summarize_router
+import asyncio
+from app.services.ingest_articles import ingest_articles
 
-app = FastAPI(title="Market News API", version="0.1.0")
+# app = FastAPI(title="Market News API", version="0.1.0")
 
-app.get("/healthz")
-async def healthz():
-    return {"ok": True}
+# app.get("/healthz")
+# async def healthz():
+#     return {"ok": True}
 
-@app.on_event("startup")
-async def startup():
-    await connect_to_mongo(app)
+# @app.on_event("startup")
+# async def startup():
+#     await connect_to_mongo(app)
 
-@app.on_event("shutdown")
-async def shutdown():
-    await close_mongo_connection(app)
+# @app.on_event("shutdown")
+# async def shutdown():
+#     await close_mongo_connection(app)
 
 
-# News Related Endpoints will be accessible at /api/v1/news/___
-app.include_router(news_router, prefix="/api/v1/news", tags=["news"])
-app.include_router(summarize_router, prefix="/api/v1/news", tags=["summaries"])
+# # News Related Endpoints will be accessible at /api/v1/news/___
+# app.include_router(news_router, prefix="/api/v1/news", tags=["news"])
+# app.include_router(summarize_router, prefix="/api/v1/news", tags=["summaries"])
 
 # # Pydantic model for POST request
 # class Item(BaseModel):
@@ -44,4 +46,12 @@ app.include_router(summarize_router, prefix="/api/v1/news", tags=["summaries"])
 # @app.get("/health")
 # def health_check():
 #     return {"status": "healthy", "service": "backend"}
+
+
+if __name__ == "__main__":
+    articles = asyncio.run(ingest_articles())
+    print(articles)
+
+    
+    
 

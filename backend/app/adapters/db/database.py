@@ -2,14 +2,17 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient
 
-# MongoDB connection settings
-MONGO_URL = os.getenv("MONGODB_URL", "mongodb://admin:password@mongo:27017/stockapp?authSource=admin")
-DATABASE_NAME = os.getenv("MONGO_DB", "stockapp")
+from app.core.config import config
+
+MONGO_URI = config.MONGO_URI
+MONGO_DB = config.MONGO_DB
+FINNHUB_API_KEY = config.FINNHUB_API_KEY
+ALPHAVANTAGE_API_KEY = config.ALPHAVANTAGE_API_KEY
 
 # Async MongoDB client
 async def get_mongo_client() -> AsyncIOMotorClient:
     """Get async MongoDB client"""
-    client = AsyncIOMotorClient(MONGO_URL)
+    client = AsyncIOMotorClient(MONGO_URI)
     try:
         # Test the connection
         await client.admin.command('ping')
@@ -21,13 +24,13 @@ async def get_mongo_client() -> AsyncIOMotorClient:
 # Sync MongoDB client (for initialization scripts)
 def get_sync_mongo_client() -> MongoClient:
     """Get sync MongoDB client"""
-    return MongoClient(MONGO_URL)
+    return MongoClient(MONGO_URI)
 
 # Database instance
 async def get_database():
     """Get database instance"""
     client = await get_mongo_client()
-    return client[DATABASE_NAME]
+    return client[MONGO_DB]
 
 # Collections
 async def get_news_collection():

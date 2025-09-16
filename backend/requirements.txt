@@ -8,3 +8,4 @@ python-dotenv
 polygon-api-client
 finnhub-python
 newsapi-python
+httpx
