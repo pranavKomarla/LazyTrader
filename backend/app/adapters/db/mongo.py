@@ -1,31 +1,46 @@
 import os
 from typing import List, Optional, Any
 from datetime import datetime
-from motor.motor_asyncio import AsyncIOMotorClient
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from contextlib import asynccontextmanager
 # from app.models import Article, ArticleSummary
 from fastapi import FastAPI, Request
 from app.core.config import config
+from app.adapters.db.repositories.article_repository import ArticleRepository
+from app.api.v1.newspage.news_router import news_router
 
-MONGO_URI = config.MONGO_URI
-MONGO_DB = config.MONGO_DB
-FINNHUB_API_KEY = config.FINNHUB_API_KEY
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- Startup ---
+    mongo_client = AsyncIOMotorClient(config.MONGO_URI)
+    await mongo_client.admin.command("ping")
+    db: AsyncIOMotorDatabase = mongo_client[config.MONGO_DB]
 
-async def connect_to_mongo(app: FastAPI) -> None:
-    client = AsyncIOMotorClient(MONGO_URI)
-    app.state.mongo_client = client
-    app.state.db = client[MONGO_DB]
+    # Initialize repo(s) and create indexes once
+    article_repo = ArticleRepository(db, config.ARTICLES_COLLECTION)
+    await article_repo.create_indexes()
 
+    # store in app.state for DI
+    app.state.mongo_client = mongo_client
+    app.state.db = db
+    app.state.article_repo = article_repo
 
-async def close_mongo_connection(app: FastAPI) -> None:
-    client: AsyncIOMotorClient = app.state.mongo_client
-    client.close()
+    yield  # ===== app runs =====
 
+    # --- Shutdown ---
+    mongo_client.close()
 
-# Dependency used in endpoints
-async def get_db(request: Request) -> Any:
-    """Get database instance from FastAPI app state"""
+app = FastAPI(lifespan=lifespan)
+
+# Routers
+app.include_router(news_router)
+
+# ---- Dependencies to pull from app.state ----
+def get_db(request: Request):
     return request.app.state.db
 
+def get_article_repo(request: Request) -> ArticleRepository:
+    return request.app.state.article_repo
 
 
 # _articles: dict[str, Article] = {}

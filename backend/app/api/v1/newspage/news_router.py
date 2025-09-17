@@ -1,65 +1,45 @@
-from fastapi import APIRouter, Query, HTTPException
-from typing import Optional
-from datetime import datetime, timedelta, timezone
-from app.services import cache, db, rank
+from __future__ import annotations
+from typing import List, Optional
 
+from fastapi import APIRouter, Depends
+from datetime import datetime
+from typing_extensions import Annotated
 
-router = APIRouter()
+from app.domain.news.models.base_model import Article
+from app.adapters.db.repositories.article_repository import ArticleRepository
+from app.main import get_article_repo
 
+router = APIRouter(prefix="/articles", tags=["articles"])
 
-VALID_TABS = {"general","ai","ipos","smallcaps","macro"}
-VALID_SINCE = {"today","24h","7d"}
-VALID_SENT = {"any","bull","bear","neutral"}
+RepoDep = Annotated[ArticleRepository, Depends(get_article_repo)]
 
+@router.post("/upsert", response_model=Article)
+async def upsert_article(article: Article, repo: RepoDep):
+    return await repo.upsert_one(article)
 
-@router.get("")
-async def list_news(
-    tab: str = Query("general"),
-    since: str = Query("24h"),
-    sentiment: str = Query("any"),
-    sources: str = Query("all"),
-    limit: int = Query(50, ge=1, le=200),
-    watchlist: Optional[str] = None,
-    cursor: Optional[str] = None,
-    ):
+@router.post("/bulk-upsert")
+async def bulk_upsert(articles: List[Article], repo: RepoDep):
+    return await repo.upsert_many(articles)
 
-    if tab not in VALID_TABS:
-        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid tab"})
-    if since not in VALID_SINCE:
-        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid since"})
-    if sentiment not in VALID_SENT:
-        raise HTTPException(status_code=400, detail={"code":"INVALID_PARAM","message":"invalid sentiment"})
+@router.get("/{article_id}", response_model=Optional[Article])
+async def get_article(article_id: str, repo: RepoDep):
+    return await repo.get_by_id(article_id)
 
+@router.delete("/{article_id}")
+async def delete_article(article_id: str, repo: RepoDep):
+    deleted = await repo.delete_by_id(article_id)
+    return {"deleted": deleted}
 
-    now = datetime.now(timezone.utc)
-    cutoff = {
-    "today": datetime(now.year, now.month, now.day),
-    "24h": now - timedelta(hours=24),
-    "7d": now - timedelta(days=7),
-    }[since]
-
-
-    wl = [t.strip().upper() for t in watchlist.split(",")] if watchlist else []
-
-
-    cache_key = f"news:{tab}:{since}:{sentiment}:{sources}:{','.join(wl) or 'none'}:{limit}:{cursor or '0'}"
-    cached = await cache.get(cache_key)
-    if cached:
-        return cached
-
-
-    # Query DB and rank
-    articles = await db.query_articles(tab=tab, cutoff=cutoff, sentiment=sentiment, sources=sources, limit=limit, watchlist=wl, cursor=cursor)
-    ranked = rank.rank_articles(articles)
-
-
-    result = {
-    "tab": tab,
-    "window": since,
-    "generated_at": now.isoformat() + "Z",
-    "next_cursor": None, # stubbed
-    "articles": [a.dict() for a in ranked[:limit]],
-    }
-
-    await cache.set(cache_key, result, ttl=900)
-    return result
+@router.get("/", response_model=List[Article])
+async def list_articles(
+    category: str | None = None,
+    source: str | None = None,
+    ticker: str | None = None,
+    since: datetime | None = None,
+    limit: int = 50,
+    skip: int = 0,
+    repo: RepoDep = Depends(),
+):
+    return await repo.list(
+        category=category, source=source, ticker=ticker, since=since, limit=limit, skip=skip
+    )

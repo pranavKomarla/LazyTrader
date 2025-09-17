@@ -1,8 +1,9 @@
 fastapi
 uvicorn
 pydantic
-python-multipart
+pydantic-settings
 motor
+python-multipart
 pymongo
 python-dotenv
 polygon-api-client
