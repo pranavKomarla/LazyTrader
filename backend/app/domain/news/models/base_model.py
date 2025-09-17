@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional, List
-from pydantic import BaseModel, HttpUrl, Field, field_serializer
+from pydantic import BaseModel, HttpUrl, Field, field_serializer, field_validator, AnyUrl
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -42,7 +42,7 @@ class Article(BaseModel):
     
     # Content metadata
     language: str = "en"
-    image_url: Optional[HttpUrl] = None
+    image_url: Optional[AnyUrl] = None
     author: Optional[str] = None
     
     # Financial/Stock specific
@@ -63,3 +63,21 @@ class Article(BaseModel):
     @field_serializer("published_at", "created_at", "updated_at", when_used="json")
     def _ser_dt(self, v: Optional[datetime], _info):
         return v.isoformat() if v else None
+    
+    # @field_validator('image_url')
+    # @classmethod
+    # def validate_image_url(cls, v):
+    #     # Handle None and empty strings
+    #     if not v or v == "":
+    #         return None
+        
+    #     # Handle strings that might not be valid URLs
+    #     if isinstance(v, str):
+    #         if v.startswith(('http://', 'https://')):
+    #             return v
+    #         else:
+    #             return None
+    
+        
+    #     # Return as-is for other types
+    #     return v

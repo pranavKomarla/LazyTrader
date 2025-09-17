@@ -5,7 +5,7 @@ from app.domain.news.models.alphavantage_model import AlphavantageAPINewsRespons
 from app.domain.news.models.finnhub_model import FinnhubAPIArticle
 from app.domain.news.models.newsapi_model import NewsAPIArticle
 from app.domain.news.models.base_model import ArticleSource, ArticleCategory
-#from app.adapters.http.newsapi_client import NewsAPIClient
+from app.adapters.http.newsapi_client import NewsAPIClient
 from app.adapters.http.alphavantage_client import AlphaVantageClient
 from app.adapters.http.finnhub_client import FinnhubClient
 from app.domain.news.mapper import to_article
@@ -16,11 +16,12 @@ from app.domain.news.mapper import to_article
 
 async def ingest_articles():
 
-    #newsapi = NewsAPIClient()
+    newsapi = NewsAPIClient()
     alphavantage = AlphaVantageClient()
     #finnhub = FinnhubClient()
 
-    #newsapi_items = await newsapi.get_everything()                # -> List[NewsAPIArticle]
+    newsapi_resp = await newsapi.get_everything()                 # -> NewsAPIResponse
+    newsapi_items = newsapi_resp.articles                         # -> List[NewsAPIArticle]
     av_resp = await alphavantage.get_news_sentiment()             # -> AlphavantageAPINewsResponse
     av_items = av_resp.feed                                       # -> List[AVFeedItem]
     # finnhub_items = await finnhub.get_news()                    # -> List[FinnhubAPIArticle]
@@ -28,7 +29,7 @@ async def ingest_articles():
     #articles = [*newsapi_articles, *alphavantage_articles] #, *finnhub_articles]
 
     articles: List[Article] = [
-        #*[to_article(x, ArticleSource.NEWSAPI, ArticleCategory.GENERAL) for x in newsapi_items],
+        *[to_article(x, ArticleSource.NEWSAPI, ArticleCategory.GENERAL) for x in newsapi_items],
         *[to_article(x, ArticleSource.ALPHAVANTAGE, ArticleCategory.GENERAL) for x in av_items],
         # *[to_article(x, ArticleSource.FINNHUB, ArticleCategory.GENERAL) for x in finnhub_items],
     ]

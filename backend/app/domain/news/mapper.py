@@ -20,8 +20,8 @@ def to_article(obj: ProviderArticle,
         return map_newsapi_to_article(obj, category)
     if source == ArticleSource.ALPHAVANTAGE and isinstance(obj, AVFeedItem):
         return map_alphavantage_to_article(obj, category)
-    if source == ArticleSource.FINNHUB and isinstance(obj, FinnhubAPIArticle):
-        return map_finnhub_to_article(obj, category)
+    # if source == ArticleSource.FINNHUB and isinstance(obj, FinnhubAPIArticle):
+    #     return map_finnhub_to_article(obj, category)
     raise TypeError(f"Unsupported source/object combo: {source} / {type(obj).__name__}")
 
 
@@ -45,7 +45,7 @@ def map_finnhub_to_article(finnhub_article: FinnhubAPIArticle) -> Article:
         tickers=[finnhub_article.related] if finnhub_article.related else None
     )
 
-def map_newsapi_to_article(newsapi_article: NewsAPIArticle) -> Article:
+def map_newsapi_to_article(newsapi_article: NewsAPIArticle, category: ArticleCategory = ArticleCategory.GENERAL) -> Article:
     """Convert NewsAPIArticle to general Article model"""
     return Article(
         id=f"newsapi_{hash(newsapi_article.url)}",  # Generate ID from URL hash
@@ -55,12 +55,12 @@ def map_newsapi_to_article(newsapi_article: NewsAPIArticle) -> Article:
         url=newsapi_article.url,
         source=ArticleSource.NEWSAPI,
         source_id=str(hash(newsapi_article.url)),
-        source_name=newsapi_article.source.get("name", "Unknown") if newsapi_article.source else "Unknown",
-        category=ArticleCategory.GENERAL,  # NewsAPI doesn't have categories like Finnhub
-        published_at=newsapi_article.published_at,
+        source_name=newsapi_article.source.name,
+        category=category,  # NewsAPI doesn't have categories like Finnhub
+        published_at=datetime.strptime(str(newsapi_article.publishedAt), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc),
         created_at=datetime.now(timezone.utc),
         language="en",
-        image_url=newsapi_article.url_to_image,
+        image_url=newsapi_article.urlToImage,
         author=newsapi_article.author
     )
 
@@ -71,27 +71,17 @@ def map_alphavantage_to_article(alphavantage_article: AVFeedItem, category: Arti
         id=f"alphavantage_{hash(alphavantage_article.url)}",  # Generate ID from URL hash
         title=alphavantage_article.title,
         content=None,
-        summary=alphavantage_article.description,
+        summary=alphavantage_article.summary,
         url=alphavantage_article.url,
-        source=str(ArticleSource.ALPHAVANTAGE),
+        source=ArticleSource.ALPHAVANTAGE,
         source_id=str(hash(alphavantage_article.url)),
-        source_name=alphavantage_article.source.get("name", "Unknown") if alphavantage_article.source else "Unknown",
+        source_name=alphavantage_article.source,
         category=category, 
         published_at=alphavantage_article.time_published,
         created_at=datetime.now(timezone.utc),
         language="en",
-        image_url=alphavantage_article.banner_image,
-        author=alphavantage_article.authors # potiently change to a string of authors
-    )
+        image_url=alphavantage_article.banner_image if alphavantage_article.banner_image else None,
+        author=", ".join(alphavantage_article.authors) if alphavantage_article.authors else None 
 
-def map_articles_to_article(articles: List[Union[FinnhubAPIArticle, NewsAPIArticle, AlphavantageAPINewsResponse]]) -> List[Article]:
-    """Convert a list of mixed article types to general Article models"""
-    result = []
-    for article in articles:
-        if isinstance(article, FinnhubAPIArticle):
-            result.append(map_finnhub_to_article(article))
-        elif isinstance(article, NewsAPIArticle):
-            result.append(map_newsapi_to_article(article))
-        elif isinstance(article, AlphavantageAPINewsResponse):
-            result.append(map_alphavantage_to_article(article))
-    return result
+        # Potentially add tickers, topics, sentiment, etc.
+    )

@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime, date, timedelta
 from app.core.config import config
 from app.domain.news.models.newsapi_model import NewsAPIResponse
+from pydantic import ValidationError
 
 '''
 q='earnings', #earnings, ipo, merger, acquisition, etc.
@@ -56,7 +57,14 @@ class NewsAPIClient:
         
         response = await self.client.get(f"{self.base_url}/everything", params=params)
         response.raise_for_status()
-        return NewsAPIResponse(**response.json())
+        data = response.json()
+        # Pydantic v2 preferred entry-point:
+        try:
+            return NewsAPIResponse.model_validate(data)
+        except ValidationError as e:
+            # log and re-raise with context (or convert to your domain error)
+            # logger.exception("AlphaVantage response validation failed: %s", e)
+            raise
     
     async def get_top_headlines(
         self,
@@ -86,7 +94,15 @@ class NewsAPIClient:
         
         response = await self.client.get(f"{self.base_url}/top-headlines", params=params)
         response.raise_for_status()
-        return NewsAPIResponse(**response.json())
+        data = response.json()
+        
+        # Pydantic v2 preferred entry-point:
+        try:
+            return NewsAPIResponse.model_validate(data)
+        except ValidationError as e:
+            # log and re-raise with context (or convert to your domain error)
+            # logger.exception("AlphaVantage response validation failed: %s", e)
+            raise
     
     async def get_sources(
         self,
