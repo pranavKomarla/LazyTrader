@@ -24,8 +24,8 @@ class ArticleRepository:
     # Converts a pydantic article into a mongo document
     @staticmethod
     def _to_mongo(article: Article) -> Dict[str, Any]:
-        # Use Python mode so datetimes stay as datetime; HttpUrl/AnyUrl are str-like
-        doc = article.model_dump(mode="python", exclude_none=True) 
+        # Use JSON mode to convert HttpUrl/AnyUrl to strings
+        doc = article.model_dump(mode="json", exclude_none=True) 
         doc["_id"] = doc.pop("id")
         return doc
 
@@ -60,10 +60,14 @@ class ArticleRepository:
             doc = self._to_mongo(a)
             doc.setdefault("created_at", now)
             doc["updated_at"] = now
+            
+            # Remove created_at from $set to avoid conflict with $setOnInsert
+            doc_for_set = {k: v for k, v in doc.items() if k != "created_at"}
+            
             ops.append(
                 UpdateOne(
                     {"_id": doc["_id"]},
-                    {"$set": doc, "$setOnInsert": {"created_at": doc["created_at"]}},
+                    {"$set": doc_for_set, "$setOnInsert": {"created_at": doc["created_at"]}},
                     upsert=True,
                 )
             )

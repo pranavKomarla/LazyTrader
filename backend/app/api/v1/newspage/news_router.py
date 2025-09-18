@@ -8,17 +8,20 @@ from typing_extensions import Annotated
 from app.domain.news.models.base_model import Article
 from app.adapters.db.repositories.article_repository import ArticleRepository
 from app.adapters.db.mongo import get_article_repo
+from app.services.ingest_articles import ingest_articles 
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 RepoDep = Annotated[ArticleRepository, Depends(get_article_repo)]
 
-@router.post("/upsert", response_model=Article)
+@router.post("/upsert", response_model=Article) # This is an endpoint for upserting an article with a request body
 async def upsert_article(article: Article, repo: RepoDep):
     return await repo.upsert_one(article)
 
 @router.post("/bulk-upsert")
-async def bulk_upsert(articles: List[Article], repo: RepoDep):
+async def bulk_upsert(repo: RepoDep):
+    print("Bulk upserting articles")
+    articles = await ingest_articles()
     return await repo.upsert_many(articles)
 
 @router.get("/{article_id}", response_model=Optional[Article])
