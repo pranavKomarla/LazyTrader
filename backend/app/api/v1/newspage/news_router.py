@@ -7,7 +7,7 @@ from typing_extensions import Annotated
 
 from app.domain.news.models.base_model import Article
 from app.adapters.db.repositories.article_repository import ArticleRepository
-from app.main import get_article_repo
+from app.adapters.db.mongo import get_article_repo
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -32,13 +32,13 @@ async def delete_article(article_id: str, repo: RepoDep):
 
 @router.get("/", response_model=List[Article])
 async def list_articles(
+    repo: RepoDep,
     category: str | None = None,
     source: str | None = None,
     ticker: str | None = None,
     since: datetime | None = None,
     limit: int = 50,
     skip: int = 0,
-    repo: RepoDep = Depends(),
 ):
     return await repo.list(
         category=category, source=source, ticker=ticker, since=since, limit=limit, skip=skip

@@ -78,7 +78,7 @@ main() {
     check_docker
     start_containers
     wait_for_containers
-    run_prisma_studio
+    #run_prisma_studio
 }
 
 # Run main function

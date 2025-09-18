@@ -15,6 +15,8 @@ class Config:
     NEWS_API_KEY: str = os.getenv("NEWS_API_KEY")
     POLYGON_API_KEY: str = os.getenv("POLYGON_API_KEY")
     ALPHAVANTAGE_API_KEY: str = os.getenv("ALPHAVANTAGE_API_KEY")
+    ARTICLES_COLLECTION: str = os.getenv("ARTICLES_COLLECTION", "articles")
+
 
 
 config = Config()

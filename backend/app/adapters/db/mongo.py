@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from app.core.config import config
 from app.adapters.db.repositories.article_repository import ArticleRepository
-from app.api.v1.newspage.news_router import news_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,11 +28,6 @@ async def lifespan(app: FastAPI):
 
     # --- Shutdown ---
     mongo_client.close()
-
-app = FastAPI(lifespan=lifespan)
-
-# Routers
-app.include_router(news_router)
 
 # ---- Dependencies to pull from app.state ----
 def get_db(request: Request):

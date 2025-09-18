@@ -14,20 +14,22 @@ class ArticleRepository:
         self.collection: AsyncIOMotorCollection = db[collection_name]
 
     async def create_indexes(self) -> None:
-        await self.collection.create_index([("_id", ASCENDING)], unique=True)
+        # _id index is created automatically by MongoDB, no need to create it manually
         await self.collection.create_index([("source", ASCENDING), ("published_at", DESCENDING)])
         await self.collection.create_index([("category", ASCENDING), ("published_at", DESCENDING)])
         await self.collection.create_index([("tickers", ASCENDING), ("published_at", DESCENDING)])
         await self.collection.create_index([("published_at", DESCENDING)])
 
     # ---- model <-> mongo ----
+    # Converts a pydantic article into a mongo document
     @staticmethod
     def _to_mongo(article: Article) -> Dict[str, Any]:
         # Use Python mode so datetimes stay as datetime; HttpUrl/AnyUrl are str-like
-        doc = article.model_dump(mode="python", exclude_none=True)
+        doc = article.model_dump(mode="python", exclude_none=True) 
         doc["_id"] = doc.pop("id")
         return doc
 
+    # Converts a mongo document into a pydantic article
     @staticmethod
     def _from_mongo(doc: Optional[Dict[str, Any]]) -> Optional[Article]:
         if not doc:

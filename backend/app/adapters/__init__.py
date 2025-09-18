@@ -13,7 +13,7 @@ from .http.alphavantage_client import AlphaVantageClient
 from .http.finnhub_client import FinnhubClient
 
 # Database adapters
-from .db.mongo import connect_to_mongo, close_mongo_connection, get_db
+from .db.mongo import get_db, get_article_repo
 
 # Cache adapters (future implementations)
 # from .cache.redis import RedisCache
@@ -25,9 +25,8 @@ __all__ = [
     "FinnhubClient",
     
     # Database functions
-    "connect_to_mongo",
-    "close_mongo_connection",
     "get_db",
+    "get_article_repo",
     
     # Cache (future)
     # "RedisCache",
