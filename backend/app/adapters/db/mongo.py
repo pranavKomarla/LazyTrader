@@ -1,3 +1,6 @@
+# init Mongo, Redis, LLM, splitter; attach to app.state
+# TODO: make sure to rename this file to lifespan.py
+
 import os
 from typing import List, Optional, Any
 from datetime import datetime
@@ -7,6 +10,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from app.core.config import config
 from app.adapters.db.repositories.article_repository import ArticleRepository
+from redis.asyncio import Redis as AsyncRedis
+from langchain_openai import ChatOpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -15,6 +22,18 @@ async def lifespan(app: FastAPI):
     await mongo_client.admin.command("ping")
     db: AsyncIOMotorDatabase = mongo_client[config.MONGO_DB]
 
+    # Redis (async) cache
+    redis = AsyncRedis.from_url(config.REDIS_URL, decode_responses=True)
+
+    # LLM client
+    llm = ChatOpenAI(api_key=config.OPENAI_API_KEY, model=config.OPENAI_MODEL, temperature=0)
+
+    # Text splitter
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=config.SUMMARY_MAP_CHUNK_SIZE,
+        chunk_overlap=config.SUMMARY_MAP_CHUNK_OVERLAP,
+    )
+
     # Initialize repo(s) and create indexes once
     article_repo = ArticleRepository(db, config.ARTICLES_COLLECTION)
     await article_repo.create_indexes()
@@ -22,12 +41,16 @@ async def lifespan(app: FastAPI):
     # store in app.state for DI
     app.state.mongo_client = mongo_client
     app.state.db = db
+    app.state.redis = redis
+    app.state.llm = llm
+    app.state.splitter = splitter
     app.state.article_repo = article_repo
 
-    yield  # ===== app runs =====
-
-    # --- Shutdown ---
-    mongo_client.close()
+    try:
+        yield
+    finally:
+        await redis.close()
+        mongo_client.close()
 
 # ---- Dependencies to pull from app.state ----
 def get_db(request: Request):
@@ -35,6 +58,18 @@ def get_db(request: Request):
 
 def get_article_repo(request: Request) -> ArticleRepository:
     return request.app.state.article_repo
+
+def get_redis(request: Request) -> AsyncRedis:
+    return request.app.state.redis
+
+def get_llm(request: Request) -> ChatOpenAI:
+    return request.app.state.llm
+
+def get_splitter(request: Request) -> RecursiveCharacterTextSplitter:
+    return request.app.state.splitter
+
+def get_mongo_client(request: Request) -> AsyncIOMotorClient:
+    return request.app.state.mongo_client
 
 
 # _articles: dict[str, Article] = {}

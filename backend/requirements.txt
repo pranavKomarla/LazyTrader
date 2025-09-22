@@ -10,3 +10,9 @@ polygon-api-client
 finnhub-python
 newsapi-python
 httpx
+langchain
+langchain-core
+langchain-openai
+langchain-text-splitters
+redis
+celery

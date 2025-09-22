@@ -5,13 +5,14 @@ from pydantic import BaseModel
 import asyncio
 from app.services.ingest_articles import ingest_articles
 from app.adapters.db.mongo import lifespan
-from app.api.v1.newspage import news_router
+from app.api.v1.newspage import news_router, summarize_router
 
 
 app = FastAPI(lifespan=lifespan)
 
 # Import and include routers after app creation to avoid circular imports
 app.include_router(news_router)
+app.include_router(summarize_router)
 
 # app = FastAPI(title="Market News API", version="0.1.0")
 

@@ -38,7 +38,7 @@ class ArticleRepository:
         d["id"] = d.pop("_id")
         return Article.model_validate(d)
 
-    # ---- CRUD ----
+    
     async def upsert_one(self, article: Article) -> Article:
         doc = self._to_mongo(article)
         now = datetime.now(timezone.utc)
