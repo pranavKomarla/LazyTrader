@@ -17,6 +17,9 @@ def build_map_chain(llm: ChatOpenAI, n_bullets: int):
 def build_reduce_article_chain(llm: ChatOpenAI):
     return reduce_article_prompt | llm | parser
 
+def build_reduce_category_chain(llm: ChatOpenAI): 
+    return reduce_category_prompt | llm | parser
+
 async def summarize_article_text(llm: ChatOpenAI, splitter: RecursiveCharacterTextSplitter, *, title: str, url: str | None, content: str, n_map_bullets: int) -> str:
     chunks = splitter.split_text(content) # splitting the content into chunks
     map_chain = build_map_chain(llm, n_bullets=n_map_bullets) # building the map chain
@@ -37,7 +40,7 @@ async def summarize_article_text(llm: ChatOpenAI, splitter: RecursiveCharacterTe
     )
     return reduced.strip()
 
-
+# This function is designed for quick, lightweight summarization when you don't need the full Map-Reduce pipeline:
 async def quick_tldr_bullets(llm: ChatOpenAI, splitter: RecursiveCharacterTextSplitter, *, content: str, n_bullets: int = 3) -> str:
     chunks = splitter.split_text(content)
     head = "\n\n".join(chunks[:2]) if chunks else content

@@ -4,6 +4,7 @@ from redis.asyncio import Redis as AsyncRedis
 
 
 # Redis cache helper functions for JSON
+
 async def cache_set_json(r: AsyncRedis, key: str, obj: Any, ttl: int | None = None):
     s = json.dumps(obj, default=str, separators=(",", ":"))
     if ttl:

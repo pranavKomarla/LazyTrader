@@ -24,22 +24,32 @@ from fastapi.responses import JSONResponse
 import hashlib
 import json
 from app.adapters.db.mongo import get_redis, get_llm, get_splitter
+from app.tasks.celery_app import build_category_brief_task
+from app.domain.llm_summarization.services.llm_routines import reduce_category_long_brief, quick_tldr_bullets
+from app.adapters.db.repositories.article_repository import ArticleRepository
+from app.adapters.db.mongo import get_article_repo
+from typing import Annotated
 
 
 router = APIRouter()
 
 
+RepoDep = Annotated[ArticleRepository, Depends(get_article_repo)] # Dependency for the article repository
+
+# Post article summary to the database
 @router.post("/articles/{article_id}/summary", response_model=SingleSummaryResponse)
-async def summarize_single_article(article_id: str, force: bool = Query(False, description="Ignore cache and recompute"), db: AsyncIOMotorDatabase = Depends(get_db)):
+async def summarize_single_article(article_id: str, repo: RepoDep, force: bool = Query(False, description="Ignore cache and recompute"), db: AsyncIOMotorDatabase = Depends(get_db)):
     redis: AsyncRedis = Depends(get_redis)
     llm: ChatOpenAI = Depends(get_llm)
     splitter: RecursiveCharacterTextSplitter = Depends(get_splitter)
 
 
-    raw = await db.articles.find_one({"_id": article_id})
-    if not raw:
+    art = await repo.get_by_id(article_id)
+
+
+    if not art:
         raise HTTPException(status_code=404, detail="Article not found")
-    art = ArticleDoc.model_validate(raw)
+    
     if not art.content or not art.content.strip():
         raise HTTPException(status_code=400, detail="Article has no content to summarize")
 
@@ -47,21 +57,21 @@ async def summarize_single_article(article_id: str, force: bool = Query(False, d
     h = await compute_article_hash(art)
 
 
-    if not force:
+    if not force: # if force = False, and cached summary exists, return the cached summary
         memo = await cache_get_json(redis, k_art_sum(art.id))
         if memo and memo.get("summary_hash") == h:
             return SingleSummaryResponse(id=art.id, title=art.title, url=art.url, summary=memo["summary"], cached=True)
 
 
-    # Compute fresh
+    # Compute fresh summary
     summary = await summarize_article_text(llm, splitter, title=art.title or "", url=art.url, content=art.content, n_map_bullets=config.SUMMARY_BULLET_TARGET)
-
+    art.summary_ai = summary
+    art.summary_hash = h
 
     # Persist
-    await db.articles.update_one({"_id": art.id}, {"$set": {"summary_ai": summary, "summary_hash": h}})
+    await repo.upsert_one(art)
     await cache_set_json(redis, k_art_sum(art.id), {"summary": summary, "summary_hash": h, "article_id": art.id, "model": MODEL, "pver": PVER, "created_at": datetime.now(timezone.utc).isoformat()})
-    await redis.set(k_art_hash(art.id), h)
-
+    await redis.set(k_art_hash(art.id), h) # just checks if the content has changed, if not, hash is set
 
     return SingleSummaryResponse(id=art.id, title=art.title, url=art.url, summary=summary, cached=False)
 

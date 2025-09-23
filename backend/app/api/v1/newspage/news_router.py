@@ -12,7 +12,7 @@ from app.services.ingest_articles import ingest_articles
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
-RepoDep = Annotated[ArticleRepository, Depends(get_article_repo)]
+RepoDep = Annotated[ArticleRepository, Depends(get_article_repo)] # Dependency for the article repository
 
 @router.post("/upsert", response_model=Article) # This is an endpoint for upserting an article with a request body
 async def upsert_article(article: Article, repo: RepoDep):

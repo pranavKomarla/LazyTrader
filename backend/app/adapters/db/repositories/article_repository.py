@@ -48,6 +48,7 @@ class ArticleRepository:
         await self.collection.update_one(
             {"_id": doc["_id"]},
             {"$set": doc, "$setOnInsert": {"created_at": doc["created_at"]}},
+            {"$set": {"summary_ai": doc["summary_ai"], "summary_hash": doc["summary_hash"]}},
             upsert=True,
         )
         saved = await self.collection.find_one({"_id": doc["_id"]})
@@ -83,6 +84,9 @@ class ArticleRepository:
         except BulkWriteError as e:
             # surface the first error; in prod you might log richer details
             raise e
+    
+    async def get_collection(self) -> AsyncIOMotorCollection:
+        return self.collection
 
     async def get_by_id(self, id_: str) -> Optional[Article]:
         doc = await self.collection.find_one({"_id": id_})
