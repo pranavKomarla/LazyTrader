@@ -1,0 +1,376 @@
+"""
+FastAPI + LangChain + Mongo scaffold for:
+  1) Single-article AI summary (cached per document)
+  2) Multi-article digest (hierarchical map→reduce)
+
+What you get in this single file:
+  - Motor (async MongoDB) setup with FastAPI lifespan
+  - Pydantic settings + response models
+  - Chunking with RecursiveCharacterTextSplitter
+  - Map/Reduce summarization using LangChain primitives
+  - Two routes:
+      POST /articles/{id}/summary
+      GET  /summaries/digest?since=YYYY-MM-DD&topic=&ticker=&limit=
+
+Notes
+-----
+• Designed to be drop-in and easy to extend. Keep prompts small and factual.
+• Uses content hashing to cache summaries and auto-invalidate when content changes.
+• Add LangSmith by setting env vars (see bottom comments).
+
+Quickstart
+----------
+# 1) Install deps
+pip install fastapi uvicorn motor pydantic[dotenv] langchain langchain-openai langchain-text-splitters langchain-core
+
+# 2) Env (e.g., .env)
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=newsapp
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+
+# 3) Run
+uvicorn app:app --reload
+
+# 4) Try it
+POST  http://localhost:8000/articles/123/summary
+GET   http://localhost:8000/summaries/digest?since=2025-09-15&limit=50
+
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import os
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Query
+from pydantic import BaseModel, BaseSettings, Field
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+
+# LangChain core pieces
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+class Settings(BaseSettings):
+    MONGO_URI: str = "mongodb://localhost:27017"
+    MONGO_DB: str = "newsapp"
+    OPENAI_API_KEY: str
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    MAP_CHUNK_SIZE: int = 1000
+    MAP_CHUNK_OVERLAP: int = 150
+    MAX_MAP_CONCURRENCY: int = 8
+    SUMMARY_BULLET_TARGET: int = 4
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()  # will read from env / .env
+
+# -----------------------------------------------------------------------------
+# FastAPI + Mongo lifespan
+# -----------------------------------------------------------------------------
+app = FastAPI(title="Article Summarization API")
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    app.state.mongo_client = AsyncIOMotorClient(settings.MONGO_URI)
+    app.state.db = app.state.mongo_client[settings.MONGO_DB]
+    app.state.llm = ChatOpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        model=settings.OPENAI_MODEL,
+        temperature=0,
+    )
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    client: AsyncIOMotorClient = app.state.mongo_client
+    client.close()
+
+async def get_db() -> AsyncIOMotorDatabase:
+    return app.state.db
+
+# -----------------------------------------------------------------------------
+# Data models
+# -----------------------------------------------------------------------------
+class ArticleDoc(BaseModel):
+    id: str = Field(alias="_id")
+    title: Optional[str] = None
+    url: Optional[str] = None
+    source: Optional[str] = None
+    published_at: Optional[datetime] = None
+    content: str
+    topics: Optional[List[str]] = None
+    tickers: Optional[List[str]] = None
+    language: Optional[str] = None
+    # cached summary fields
+    summary_ai: Optional[str] = None
+    summary_hash: Optional[str] = None
+
+class SingleSummaryResponse(BaseModel):
+    id: str
+    title: Optional[str]
+    url: Optional[str]
+    summary: str
+    cached: bool
+
+class DigestTheme(BaseModel):
+    headline: str
+    bullets: List[str]
+    representative_ids: List[str] = []
+
+class DigestResponse(BaseModel):
+    since: datetime
+    count_articles: int
+    themes: List[DigestTheme]
+    highlights: List[str] = []
+
+# -----------------------------------------------------------------------------
+# Utilities: hashing, chunking
+# -----------------------------------------------------------------------------
+
+def hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=settings.MAP_CHUNK_SIZE,
+    chunk_overlap=settings.MAP_CHUNK_OVERLAP,
+)
+
+# -----------------------------------------------------------------------------
+# LangChain prompt "pipes"
+# -----------------------------------------------------------------------------
+map_prompt = ChatPromptTemplate.from_messages([
+    ("system", (
+        "You extract factual bullets from text."
+        " For any numbers, dates, or named entities, quote a short span (≤8 words)."
+        " Output exactly {n_bullets} bullets. No preamble, no trailing text."
+    )),
+    ("human", "TEXT:\n{chunk}")
+])
+
+reduce_article_prompt = ChatPromptTemplate.from_messages([
+    ("system", (
+        "You are a precise summarizer. Combine bullets into a concise brief."
+        " Output sections exactly as: \n"
+        "- Key Points (3-5 bullets)\n"
+        "- Takeaway (1 short paragraph)\n"
+        "- Source: {url}"
+    )),
+    ("human", "TITLE: {title}\nBULLETS:\n{bullets}")
+])
+
+reduce_digest_prompt = ChatPromptTemplate.from_messages([
+    ("system", (
+        "You are an editor creating a daily digest. Group items into 3-7 themes."
+        " Each theme: a short headline + 2-4 bullets. End with a 'Highlights' line"
+        " containing at most 5 notable facts. Keep total under 220 tokens."
+    )),
+    ("human", "CANDIDATE BULLETS (one per line):\n{all_bullets}")
+])
+
+parser = StrOutputParser()
+
+# We will create sync LC chains and run them via to_thread in async endpoints.
+
+def build_map_chain(llm: ChatOpenAI, n_bullets: int) -> Any:
+    return (map_prompt.partial(n_bullets=str(n_bullets)) | llm | parser)
+
+def build_reduce_article_chain(llm: ChatOpenAI) -> Any:
+    return (reduce_article_prompt | llm | parser)
+
+def build_reduce_digest_chain(llm: ChatOpenAI) -> Any:
+    return (reduce_digest_prompt | llm | parser)
+
+# -----------------------------------------------------------------------------
+# Core summarization routines
+# -----------------------------------------------------------------------------
+async def summarize_article(
+    llm: ChatOpenAI,
+    title: str,
+    url: Optional[str],
+    content: str,
+    n_map_bullets: int,
+) -> str:
+    """Map over chunks -> reduce to final per-article summary."""
+    # Map stage (concurrent over chunks)
+    docs = splitter.split_text(content)
+    map_chain = build_map_chain(llm, n_bullets=n_map_bullets)
+
+    sem = asyncio.Semaphore(settings.MAX_MAP_CONCURRENCY)
+
+    async def _map_one(txt: str) -> str:
+        async with sem:
+            return await asyncio.to_thread(map_chain.invoke, {"chunk": txt})
+
+    mapped: List[str] = await asyncio.gather(*(_map_one(d) for d in docs))
+    bullet_block = "\n".join(mapped)
+
+    # Reduce stage
+    reduce_chain = build_reduce_article_chain(llm)
+    reduced: str = await asyncio.to_thread(
+        reduce_chain.invoke,
+        {"title": title or "(untitled)", "url": url or "", "bullets": bullet_block},
+    )
+    return reduced.strip()
+
+async def digest_from_articles(
+    llm: ChatOpenAI,
+    per_article_bullets: List[str],
+) -> str:
+    all_bullets = "\n".join(per_article_bullets)
+    reduce_chain = build_reduce_digest_chain(llm)
+    out: str = await asyncio.to_thread(reduce_chain.invoke, {"all_bullets": all_bullets})
+    return out.strip()
+
+# Helper: produce a *short* per-article TL;DR bullets string
+async def short_tldr_bullets(llm: ChatOpenAI, content: str, n_bullets: int) -> str:
+    docs = splitter.split_text(content)
+    # Take first 1-2 chunks for speed; adjust as needed
+    head = "\n\n".join(docs[:2]) if docs else content
+    chain = build_map_chain(llm, n_bullets=n_bullets)
+    return await asyncio.to_thread(chain.invoke, {"chunk": head})
+
+# -----------------------------------------------------------------------------
+# Routes
+# -----------------------------------------------------------------------------
+@app.post("/articles/{article_id}/summary", response_model=SingleSummaryResponse)
+async def summarize_single_article(
+    article_id: str,
+    force: bool = Query(False, description="Ignore cache and recompute"),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    doc = await db.articles.find_one({"_id": article_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    article = ArticleDoc.model_validate(doc)
+    if not article.content or len(article.content.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Article has no content to summarize")
+
+    current_hash = hash_text(article.content)
+    if (not force) and article.summary_ai and article.summary_hash == current_hash:
+        return SingleSummaryResponse(
+            id=article.id,
+            title=article.title,
+            url=article.url,
+            summary=article.summary_ai,
+            cached=True,
+        )
+
+    llm: ChatOpenAI = app.state.llm
+    summary = await summarize_article(
+        llm=llm,
+        title=article.title or "",
+        url=article.url,
+        content=article.content,
+        n_map_bullets=settings.SUMMARY_BULLET_TARGET,
+    )
+
+    await db.articles.update_one(
+        {"_id": article.id},
+        {"$set": {"summary_ai": summary, "summary_hash": current_hash}},
+    )
+
+    return SingleSummaryResponse(
+        id=article.id,
+        title=article.title,
+        url=article.url,
+        summary=summary,
+        cached=False,
+    )
+
+@app.get("/summaries/digest", response_model=DigestResponse)
+async def get_digest(
+    since: datetime = Query(..., description="Only include articles since this timestamp (UTC)."),
+    topic: Optional[str] = Query(None),
+    ticker: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=500),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    q: Dict[str, Any] = {"published_at": {"$gte": since}}
+    if topic:
+        q["topics"] = topic
+    if ticker:
+        q["tickers"] = ticker
+
+    cursor = db.articles.find(q, projection={
+        "_id": 1, "title": 1, "url": 1, "content": 1
+    }).sort("published_at", -1).limit(limit)
+
+    docs: List[ArticleDoc] = [ArticleDoc.model_validate(d) async for d in cursor]
+    if not docs:
+        raise HTTPException(status_code=404, detail="No articles found for given criteria")
+
+    llm: ChatOpenAI = app.state.llm
+
+    # Build short per-article bullets concurrently
+    sem = asyncio.Semaphore(settings.MAX_MAP_CONCURRENCY)
+
+    async def _bullets(a: ArticleDoc) -> str:
+        async with sem:
+            try:
+                return await short_tldr_bullets(llm, a.content, n_bullets=3)
+            except Exception:
+                return "- (unable to summarize)"
+
+    bullets_list: List[str] = await asyncio.gather(*(_bullets(a) for a in docs))
+
+    digest_text = await digest_from_articles(llm, bullets_list)
+
+    # Very light structure parsing: split into themes and highlights heuristically
+    themes: List[DigestTheme] = []
+    highlights: List[str] = []
+    section = "themes"
+    for line in digest_text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.lower().startswith("highlights"):
+            section = "highlights"
+            continue
+        if section == "themes":
+            if not s.startswith("-") and not s.startswith("*") and not s[0].isdigit():
+                # headline line
+                themes.append(DigestTheme(headline=s, bullets=[]))
+            else:
+                if not themes:
+                    themes.append(DigestTheme(headline="General", bullets=[]))
+                themes[-1].bullets.append(s.lstrip("-*0123456789. "))
+        else:
+            # highlights
+            if s[:1] in "-*0123456789":
+                s = s.lstrip("-*0123456789. ")
+            highlights.append(s)
+    
+    # Truncate to sensible limits
+    themes = themes[:7]
+    for t in themes:
+        t.bullets = t.bullets[:4]
+    highlights = highlights[:5]
+
+    return DigestResponse(
+        since=since,
+        count_articles=len(docs),
+        themes=themes,
+        highlights=highlights,
+    )
+
+# -----------------------------------------------------------------------------
+# Optional: enable LangSmith tracing by environment variables
+# -----------------------------------------------------------------------------
+# export LANGCHAIN_TRACING_V2=true
+# export LANGCHAIN_API_KEY=lsv2-...
+# export LANGCHAIN_PROJECT="news-digests"
+
+# -----------------------------------------------------------------------------
+# Optional: simple curl examples
+# -----------------------------------------------------------------------------
+# curl -X POST http://localhost:8000/articles/abc123/summary
+# curl "http://localhost:8000/summaries/digest?since=2025-09-15T00:00:00Z&limit=25"

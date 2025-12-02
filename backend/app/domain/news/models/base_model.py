@@ -54,6 +54,10 @@ class Article(BaseModel):
     is_processed: bool = False
     is_summarized: bool = False
     coverage_score: Optional[float] = None
+
+    # cached summary fields (our per-article AI summary)
+    summary_ai: Optional[str] = None
+    summary_hash: Optional[str] = None
     
     model_config = {
         "use_enum_values": True,  # serialize enums as their values
