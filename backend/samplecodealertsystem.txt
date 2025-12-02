@@ -1,0 +1,123 @@
+async def parse_alert_prompt(
+    user_id: str,
+    prompt: str,
+    *,
+    default_channel: str = "email",
+    default_channel_target: Optional[str] = None,
+) -> Alert:
+    """
+    Main function: take a free-form user prompt and return a structured Alert.
+
+    Does NOT persist anything yet. You can call `save_alert(alert)` after this.
+    Raises ValueError if nothing parseable is found.
+    """
+    msg = await _llm.ainvoke(prompt)
+
+    if not msg.tool_calls:
+        # You can get fancier: ask follow-up questions, etc.
+        raise ValueError("Could not understand alert request from prompt.")
+
+    # For now, just use the first tool call
+    tool_call = msg.tool_calls[0]
+    name = tool_call["name"]
+    args = tool_call["args"]
+
+    ticker = args.get("ticker", "").upper()
+
+    # Map the tool call to your internal Alert object
+    if name == "create_price_alert":
+        alert = Alert(
+            user_id=user_id,
+            type=AlertType.PRICE_THRESHOLD,
+            ticker=ticker,
+            metric="price",
+            operator=args["operator"],
+            threshold=float(args["target"]),
+            channel=default_channel,          # e.g. "email"
+            channel_target=default_channel_target,
+        )
+
+    elif name == "create_metric_alert":
+        metric_raw = args["metric"]
+        normalized_metric = normalize_metric_name(metric_raw)
+
+        alert = Alert(
+            user_id=user_id,
+            type=AlertType.METRIC_THRESHOLD,
+            ticker=ticker,
+            metric=normalized_metric,         # e.g. "pe"
+            operator=args["operator"],
+            threshold=float(args["target"]),
+            channel=default_channel,
+            channel_target=default_channel_target,
+        )
+
+    elif name == "create_event_alert":
+        alert = Alert(
+            user_id=user_id,
+            type=AlertType.EVENT,
+            ticker=ticker,
+            event_type=args["event_type"],     # currently only "earnings"
+            event_offset_days=int(args["offset_days"]),
+            channel=default_channel,
+            channel_target=default_channel_target,
+        )
+
+    else:
+        raise ValueError(f"Unknown tool called: {name}")
+
+    return alert
+
+
+
+
+# api/routes/alerts.py
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+from alerts.nl_alerts import parse_alert_prompt, save_alert, Alert
+
+router = APIRouter(prefix="/alerts", tags=["alerts"])
+
+
+class AlertPromptRequest(BaseModel):
+    prompt: str
+    # Optional override notification channel
+    channel: str | None = None
+    channel_target: str | None = None
+
+
+class AlertResponse(BaseModel):
+    id: str
+    alert: Alert
+
+
+def get_current_user_id():
+    # TODO: integrate with your auth (e.g. from JWT / session)
+    # For now, hardcode or mock.
+    return "user-123"
+
+
+@router.post("/nl", response_model=AlertResponse)
+async def create_alert_from_nl(
+    body: AlertPromptRequest,
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        alert = await parse_alert_prompt(
+            user_id=user_id,
+            prompt=body.prompt,
+            default_channel=body.channel or "email",
+            default_channel_target=body.channel_target,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Once you implement save_alert(), this will persist to Mongo
+    alert_id = await save_alert(alert)
+
+    # Update the alert with the stored ID if you want
+    alert.id = alert_id
+
+    return AlertResponse(id=alert_id, alert=alert)

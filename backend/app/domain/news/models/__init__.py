@@ -21,9 +21,6 @@ from .alphavantage_model import (
     AlphavantageAPINewsResponse
 )
 
-# Summary models
-from .summary import ArticleSummary, PageRecap
-
 __all__ = [
     # Base models
     "Article",
