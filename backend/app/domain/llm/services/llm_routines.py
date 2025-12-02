@@ -4,10 +4,10 @@ import asyncio
 from typing import List
 from datetime import datetime, timezone
 import json
-from app.domain.llm_summarization.services.llm_prompts import map_prompt, reduce_article_prompt, reduce_category_prompt
-from app.domain.llm_summarization.models.llm_summarization_model import CategoryBrief
+from app.domain.llm.services.llm_prompts import map_prompt, reduce_article_prompt, reduce_category_prompt
+from app.domain.llm.models.llm_summarization_model import CategoryBrief
 from app.core.config import config
-from app.domain.llm_summarization.services.llm_prompts import parser
+from app.domain.llm.services.llm_prompts import parser
 
 
 def build_map_chain(llm: ChatOpenAI, n_bullets: int):

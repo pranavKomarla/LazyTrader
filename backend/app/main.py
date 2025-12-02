@@ -2,8 +2,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 #from app.adapters.db.mongo import connect_to_mongo, close_mongo_connection
 #from app.api.v1.newspage import news_router, summarize_router
-import asyncio
-from app.services.ingest_articles import ingest_articles
 from app.adapters.db.mongo import lifespan
 from app.api.v1.newspage import news_router, summarize_router
 
